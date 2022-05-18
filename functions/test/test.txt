@@ -6,5 +6,23 @@ If you WERE to implement tests for your function, what cases would you test?
 List each case below in plain english with it's expected result. 
 
 For example...
-Case: user a views user b's recording x for the first time
-Expected Result: etc etc
+Case: User a views user b's 'recording c' for the first time.
+Expected Result: recording c's unique view count increases by exactly one, and the user id associated with user a is added to the viewers array in the database document.
+
+Case: Fewer than 1 unique user per second attempts to view a recording for the first time.
+R: The writes are committed as expected and the users array grows to the correct size.
+
+Case: Before a transaction has been committed but after it has begun, another attempted view is registered by the same user.
+R: The count of unique viewers only increments once, and only one id is added to the array.
+
+Case: The viewers array is reset (each week, for example).
+R: Each user can contribute another unique view, but no more than one.
+
+Case: More than one unique user per second attempts to view a recording for the first time.
+R: Undefined behavior. This might be a test to implement with a view towards failing initially and eventually transitioning to distributed counters so as to pass it. In the same vein:
+
+Case: More than 20,000 unique users attempt to view a recording without the viewers array being reset.
+R: Writes will begin to fail since each array member is an index and the db has a maximum of 20k indices per document. Like above, this is a test to implement with a view towards failing initially and transitioning. But the use case is also rare given the audience size (firm-wide) for a given recording.
+
+Case: A user changes their user id.
+R: Currently, fails. Future behavior - each viewers array containing the ID would be altered or erased.

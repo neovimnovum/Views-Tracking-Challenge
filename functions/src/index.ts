@@ -40,7 +40,11 @@ export const recordingViews = functions.https.onRequest(async (request, response
         3. Send a 400 response and return if the request is invalid
             response.status(400).send();
         */
-
+      if (typeof viewerId !== "string" || typeof recordingId !== "string" ||
+        !viewerId.length || !recordingId.length) {
+        response.status(400).send();
+        return;
+      }
       await trackRecordingView(viewerId, recordingId);
       // it worked!
       response.status(200).send("No errors!");

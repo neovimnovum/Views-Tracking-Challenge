@@ -1,61 +1,46 @@
 import * as functions from "firebase-functions";
+import {Query, QuerySnapshot, QueryDocumentSnapshot} from "@google-cloud/firestore";
+import {Recording} from "./types";
 import {db} from "./index";
 
-/* BONUS OPPORTUNITY
-It's not great (it's bad) to throw all of this code in one file.
-Can you help us organize this code better?
-*/
-
-
-export interface Recording {
-    id: string; // matches document id in firestore
-    creatorId: string; // id of the user that created this recording
-    uniqueViewCount: number;
-}
-
-export interface User {
-    id: string; // mathes both the user's document id
-    uniqueRecordingViewCount: number; // sum of all recording views
-}
-
-export enum Collections {
-    Users = "Users",
-    Recordings = "Recordings"
-}
-
 export async function trackRecordingView(viewerId: string, recordingId: string): Promise<void> {
-  // TODO: implement this function
-
-  // logs can be viewed in the firebase emulator ui
   functions.logger.debug("viewerId: ", viewerId);
   functions.logger.debug("recordingId: ", recordingId);
+  try {
+    await db.runTransaction(async (t): Promise<void> => {
+      const recordingQ: Query = db.collection("Recordings")
+          .where("id", "==", recordingId);
 
+      // First, query for whether the recording has already been seen by the viewer.
+      // If nothing turns up, continue with the logic. If we get our recording, though,
+      // there's nothing left to do.
+      const seen: QuerySnapshot = await t.get(recordingQ
+          .where("viewers", "array-contains", viewerId));
 
-  // ATTN: the rest of the code in this file is only here to show how firebase works
+      if (seen.empty) {
+        // Next, query for the unseen recording. If we don't find one, the recording
+        // isn't in the db and we should throw a descriptive error.
+        const unseen: QuerySnapshot<Recording> = await
+          t.get(recordingQ) as QuerySnapshot<Recording>;
+        if (unseen.empty) {
+          throw new Error("Recording not found.");
+        }
 
-  // read from a document
-  const documentSnapshot = await db.collection("collection").doc("doc").get();
-  if (documentSnapshot.exists) {
-    const data = documentSnapshot.data();
-    functions.logger.debug("it did exist!", data);
-  } else {
-    functions.logger.debug("it didn't exist");
+        // Otherwise, prepare and perform an update that increments viewers and adds user to
+        // the viewers array (and initializes it if it doesn't exist).
+        const unseenDocSnap: QueryDocumentSnapshot<Recording> = unseen.docs[0];
+        const record: Recording = unseenDocSnap.data();
+        const newViewers: string[] = Array.isArray(record.viewers) ? record.viewers : [];
+        newViewers.push(viewerId);
+        const newCount: number = record.uniqueViewCount + 1;
+        await t.update(unseenDocSnap.ref, {uniqueViewCount: newCount, viewers: newViewers});
+        return;
+      }
+    });
+  } catch (e) {
+    // As the app evolves, we would want custom error handling to
+    // weed out common and expected errors. For now this is just a placeholder:
+    functions.logger.error(e);
+    throw e;
   }
-
-  // overwrite a document based on the data you have when sending the write request
-  // set overwrites all existing fields and creates new documents if necessary
-  await db.collection("collection").doc("doc").set({id: "id", field: "foo"});
-  // update will fail if the document exists and will only update fields included
-  // in your update
-  await db.collection("collection").doc("doc").update({id: "id", field: "bar"});
-
-  // update based on data inside the document at the time of the write using a transaction
-  // https://firebase.google.com/docs/firestore/manage-data/transactions#web-version-9
-
-  await db.runTransaction(async (t): Promise<void> => {
-    const ref = db.collection("collection").doc("doc");
-    const docSnapshot = await t.get(ref);
-    // do something with the data
-    t.set(ref, {id: "id", field: "foobar"});
-  });
 }
